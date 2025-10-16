@@ -39,6 +39,8 @@ export default function HomePage() {
   const [dataset, setDataset] = useState<string>('');
   const [scaleMax, setScaleMax] = useState<number | undefined>(undefined);
   const [ratio, setRatio] = useState<number>(0);
+  const [lastRatio, setLastRatio] = useState<number | undefined>(undefined);
+  const [lastDistance, setLastDistance] = useState<number | undefined>(undefined);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -115,13 +117,20 @@ export default function HomePage() {
 
   // Update the bar ratio whenever distance or scale changes
   useEffect(() => {
-    if (!distance || !scaleMax) {
-      setRatio(0);
-      return;
+    if (distance != null && scaleMax) {
+      const r = Math.max(0, Math.min(1, distance / scaleMax));
+      setRatio(r);
+      setLastRatio(r);
+      setLastDistance(distance);
     }
-    const r = Math.max(0, Math.min(1, distance / scaleMax));
-    setRatio(r);
   }, [distance, scaleMax]);
+
+  // When the prompt changes, reset last-known values
+  useEffect(() => {
+    setLastRatio(undefined);
+    setLastDistance(undefined);
+    setRatio(0);
+  }, [promptIndex]);
 
   return (
     <main className="max-w-3xl mx-auto p-6">
@@ -161,24 +170,42 @@ export default function HomePage() {
 
             <div className="mt-6">
               <div className="text-gray-300 mb-2">Distance</div>
-              <div className="flex items-center gap-3">
-                <div className="text-sm text-gray-300 max-w-[30%] truncate" title={data.tokens[promptIndex]}>
-                  {data.tokens[promptIndex]}
-                </div>
-                <div className="flex-1">
-                  <div className="relative h-3 w-full rounded-full bg-white/10 overflow-hidden">
+              <div className="w-full flex justify-center">
+                {(() => {
+                  const hasAny = (distance != null && scaleMax) || lastRatio != null;
+                  const shownRatio = distance != null && scaleMax ? ratio : (lastRatio ?? 0);
+                  const shownDistance = distance != null ? distance : lastDistance;
+                  if (!hasAny || shownRatio <= 0) {
+                    return (
+                      <div className="text-sm text-gray-500">Type a word to measure distance…</div>
+                    );
+                  }
+                  return (
                     <div
-                      className={clsx(
-                        'absolute left-0 top-0 h-full rounded-full transition-[width] duration-300 ease-out',
-                        distance == null ? 'bg-gray-700' : 'bg-brand-600'
-                      )}
-                      style={{ width: `${(ratio * 100).toFixed(1)}%` }}
-                    />
-                  </div>
-                </div>
-                <div className="text-sm text-gray-300 max-w-[30%] text-right truncate" title={guess || '—'}>
-                  {guess || '—'}
-                </div>
+                      className="relative"
+                      style={{ width: `${(shownRatio * 100).toFixed(1)}%`, transition: 'width 300ms ease-out' }}
+                    >
+                      <div className="h-5 rounded-full bg-brand-600" />
+                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                        <span className="text-xs font-medium text-white/90">
+                          {shownDistance != null ? `${shownDistance.toFixed(3)} units` : ''}
+                        </span>
+                      </div>
+                      <div
+                        className="absolute -top-6 left-0 text-sm text-gray-300 max-w-[14rem] truncate"
+                        title={data.tokens[promptIndex]}
+                      >
+                        {data.tokens[promptIndex]}
+                      </div>
+                      <div
+                        className="absolute -top-6 right-0 text-sm text-gray-300 max-w-[14rem] truncate text-right"
+                        title={guess || '—'}
+                      >
+                        {guess || '—'}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
 
