@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "format": "prettier --write .",
-    "prepare:embeddings": "node scripts/prepare-glove.js"
+    "prepare:embeddings": "node scripts/prepare-glove.js",
+    "prepare:wordlist": "node scripts/prepare-wordlist.js"
   },
   "dependencies": {
     "clsx": "^2.1.1",
