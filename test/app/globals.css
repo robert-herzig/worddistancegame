@@ -1,0 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #0b0f19;
+  --fg: #f8fafc;
+  --muted: #94a3b8;
+}
+
+html, body { height: 100%; }
+
+.card { @apply rounded-xl border border-white/10 bg-white/5 backdrop-blur p-6 shadow-lg; }
+.btn { @apply inline-flex items-center justify-center rounded-lg bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 font-medium transition-colors; }
