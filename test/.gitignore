@@ -8,4 +8,10 @@ coverage
 .env
 .env.local
 
+# Ignore raw datasets
+/data/
+
+# Ignore large binary embeddings generated from converters
+public/embeddings/**/embeddings.bin
+
 data
