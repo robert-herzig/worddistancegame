@@ -41,6 +41,12 @@ export default function HomePage() {
   const [ratio, setRatio] = useState<number>(0);
   const [lastRatio, setLastRatio] = useState<number | undefined>(undefined);
   const [lastDistance, setLastDistance] = useState<number | undefined>(undefined);
+  const [username, setUsername] = useState<string>('');
+  type LBEntry = { name: string; best: number };
+  const [leaderboard, setLeaderboard] = useState<LBEntry[]>([]);
+  const [roundEndsAt, setRoundEndsAt] = useState<number | null>(null);
+  const [timeLeft, setTimeLeft] = useState<number>(0);
+  const [roundBest, setRoundBest] = useState<number | undefined>(undefined);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -69,6 +75,13 @@ export default function HomePage() {
     });
     const saved = localStorage.getItem('bestDistance');
     if (saved) setBest(parseFloat(saved));
+    const savedName = localStorage.getItem('username');
+    if (savedName) setUsername(savedName);
+    // Load leaderboard from server API
+    fetch('/api/leaderboard')
+      .then((r) => r.json())
+      .then((arr: LBEntry[]) => { if (Array.isArray(arr)) setLeaderboard(arr); })
+      .catch(() => {});
     return () => { mounted = false; };
   }, [setBest]);
 
@@ -89,6 +102,8 @@ export default function HomePage() {
       useStore.setState({ best: distance });
       localStorage.setItem('bestDistance', String(distance));
     }
+    // Track best distance during the active round
+    setRoundBest((prev) => (prev == null || distance > prev ? distance : prev));
   }, [distance, best]);
 
   // Estimate a reasonable max distance for this prompt by sampling candidates
@@ -125,23 +140,83 @@ export default function HomePage() {
     }
   }, [distance, scaleMax]);
 
+  // Persist username changes
+  useEffect(() => {
+    if (username) localStorage.setItem('username', username);
+  }, [username]);
+
+  const myBest = useMemo(() => {
+    if (!username.trim()) return undefined;
+    const entry = leaderboard.find((e) => e.name.toLowerCase() === username.trim().toLowerCase());
+    return entry?.best;
+  }, [leaderboard, username]);
+
   // When the prompt changes, reset last-known values
   useEffect(() => {
     setLastRatio(undefined);
     setLastDistance(undefined);
     setRatio(0);
+    // Start a new 10-second round
+    const ends = Date.now() + 10_000;
+    setRoundEndsAt(ends);
+    setTimeLeft(ends - Date.now());
+    setRoundBest(undefined);
   }, [promptIndex]);
 
+  // Round timer tick
+  useEffect(() => {
+    if (!roundEndsAt) return;
+    const id = setInterval(() => {
+      const left = Math.max(0, roundEndsAt - Date.now());
+      setTimeLeft(left);
+      if (left <= 0) {
+        clearInterval(id);
+      }
+    }, 100);
+    return () => clearInterval(id);
+  }, [roundEndsAt]);
+
+  // Submit score to server on round end (triggered when timeLeft hits 0)
+  useEffect(() => {
+    if (roundEndsAt === null) return;
+    if (timeLeft > 0) return;
+    // Mark round handled
+    setRoundEndsAt(null);
+    if (username.trim() && roundBest != null && Number.isFinite(roundBest)) {
+      fetch('/api/leaderboard', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: username.trim(), score: roundBest })
+      })
+        .then((r) => r.json())
+        .then((arr: LBEntry[]) => { if (Array.isArray(arr)) setLeaderboard(arr); })
+        .catch(() => {});
+    }
+  }, [timeLeft, roundEndsAt, roundBest, username]);
+
   return (
-    <main className="max-w-3xl mx-auto p-6">
-      <header className="flex items-center justify-between mb-8">
-        <h1 className="text-2xl font-semibold">WordDistance Game</h1>
-        <div className="text-right text-sm text-gray-400">
-          <div>Best: {best?.toFixed(3) ?? '—'}</div>
+    <main className="max-w-6xl mx-auto p-6">
+      <header className="mb-6">
+        <div className="flex items-center justify-between gap-4">
+          <h1 className="text-2xl font-semibold">WordDistance Game</h1>
+          <label className="flex items-center gap-2 text-sm">
+            <span className="text-gray-300">Username</span>
+            <input
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              className="rounded-lg bg-gray-900 border border-white/10 px-3 py-1.5 outline-none focus:ring-2 focus:ring-brand-600"
+              placeholder="Enter your name"
+            />
+          </label>
+        </div>
+        <p className="text-gray-400 mt-2">Find the word that's least closely related to the given word</p>
+        <div className="text-right text-sm text-gray-400 mt-2">
+          <div>Your best: {myBest?.toFixed(3) ?? (best?.toFixed(3) ?? '—')}</div>
         </div>
       </header>
 
-      <section className="card">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <section className="card lg:col-span-2">
         {!ready || !data || promptIndex == null ? (
           <div className="text-gray-400">Loading embeddings…</div>
         ) : (
@@ -158,6 +233,7 @@ export default function HomePage() {
                 className="mt-2 w-full rounded-lg bg-gray-900 border border-white/10 px-4 py-2 outline-none focus:ring-2 focus:ring-brand-600"
                 placeholder="Type a word from the dictionary…"
                 list="token-list"
+                disabled={!username.trim() || roundEndsAt === null}
               />
               <datalist id="token-list">
                 {(useStore.getState().candidate ?? data.tokens.map((_, i) => i))
@@ -166,6 +242,17 @@ export default function HomePage() {
                     <option key={i} value={data.tokens[i]} />
                   ))}
               </datalist>
+              <div className="mt-2 text-sm text-gray-400">
+                {username.trim() ? (
+                  roundEndsAt ? (
+                    <>Time left: {(timeLeft / 1000).toFixed(1)}s</>
+                  ) : (
+                    <>Round over. Press Next for a new word.</>
+                  )
+                ) : (
+                  <>Enter a username to play.</>
+                )}
+              </div>
             </label>
 
             <div className="mt-6">
@@ -220,7 +307,35 @@ export default function HomePage() {
             </div>
           </div>
         )}
-      </section>
+        </section>
+
+        <aside className="card">
+          <h2 className="text-lg font-semibold mb-3">Top 10</h2>
+          {leaderboard.length === 0 ? (
+            <div className="text-sm text-gray-500">No scores yet. Be the first!</div>
+          ) : (
+            <ol className="space-y-2">
+              {leaderboard.slice(0, 10).map((e, i) => (
+                <li key={e.name + i} className="flex items-center justify-between text-sm">
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-500 w-5">{i + 1}.</span>
+                    <span
+                      className={clsx(
+                        "truncate max-w-[10rem]",
+                        username.trim() && e.name.trim().toLowerCase() === username.trim().toLowerCase() && "text-brand-400"
+                      )}
+                      title={e.name}
+                    >
+                      {e.name}
+                    </span>
+                  </div>
+                  <span className="tabular-nums">{e.best.toFixed(3)}</span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </aside>
+      </div>
 
       <footer className="mt-8 text-center text-xs text-gray-500">
         Offline-ready PWA. Sample embeddings included for demo.
